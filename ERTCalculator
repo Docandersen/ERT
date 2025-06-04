@@ -1,0 +1,1160 @@
+ert-calculator/
+├── backend/                # Node.js (Express)
+│   ├── src/
+│   │   ├── api/            # API routes (controllers)
+│   │   │   ├── projectRoutes.js
+│   │   │   ├── assessmentRoutes.js
+│   │   │   └── remediationRoutes.js
+│   │   ├── models/         # Sequelize data models
+│   │   │   ├── index.js    # Sequelize setup
+│   │   │   ├── project.js
+│   │   │   ├── assessment.js
+│   │   │   ├── statement.js
+│   │   │   ├── assessmentResponse.js
+│   │   │   └── user.js
+│   │   ├── services/       # Business logic
+│   │   │   ├── assessmentService.js
+│   │   │   └── reportService.js
+│   │   ├── middleware/     # Custom middleware (e.g., auth)
+│   │   ├── config/         # Database, auth config
+│   │   └── app.js          # Express app setup
+│   ├── package.json
+│   └── .env
+│
+├── frontend/               # React (Vite)
+│   ├── public/
+│   ├── src/
+│   │   ├── components/     # Reusable UI components
+│   │   │   ├── Assessment/
+│   │   │   │   ├── Questionnaire.jsx
+│   │   │   │   └── ScoreInput.jsx
+│   │   │   ├── Dashboard/
+│   │   │   │   └── MaturityHeatMap.jsx
+│   │   │   ├── Remediation/
+│   │   │   │   └── ActionItem.jsx
+│   │   │   └── Layout/
+│   │   │       ├── Navbar.jsx
+│   │   │       └── Sidebar.jsx
+│   │   ├── pages/          # Page-level components
+│   │   │   ├── ProjectSetupPage.jsx
+│   │   │   ├── AssessmentPage.jsx
+│   │   │   ├── ResultsDashboardPage.jsx
+│   │   │   └── OptimizationPlanningPage.jsx
+│   │   ├── services/       # API call services
+│   │   │   └── apiClient.js
+│   │   ├── contexts/       # React contexts (e.g., AuthContext)
+│   │   ├── assets/
+│   │   ├── styles/
+│   │   ├── App.jsx         # Main React App component
+│   │   └── main.jsx        # React entry point
+│   ├── package.json
+│   └── vite.config.js
+│
+└── README.md
+
+💾 Backend Code (Node.js with Express.js & Sequelize)
+Models (backend/src/models/)
+project.js
+
+// File: backend/src/models/project.js
+module.exports = (sequelize, DataTypes) => {
+  const Project = sequelize.define('Project', {
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    applicationType: {
+      type: DataTypes.STRING, // e.g., 'web app', 'IoT system'
+    },
+    // Timestamps createdAt and updatedAt are automatically added by Sequelize
+  });
+
+  Project.associate = (models) => {
+    // Ensure 'Assessment' model is defined in models object
+    if (models.Assessment) {
+      Project.hasMany(models.Assessment, { foreignKey: 'projectId' });
+    }
+    // Example for participants, ensure 'User' and 'ProjectParticipants' are defined
+    // if (models.User && models.ProjectParticipants) {
+    //   Project.belongsToMany(models.User, { through: models.ProjectParticipants });
+    // }
+  };
+
+  return Project;
+};
+
+assessment.js
+
+// File: backend/src/models/assessment.js
+module.exports = (sequelize, DataTypes) => {
+  const Assessment = sequelize.define('Assessment', {
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
+    },
+    quarter: { // e.g., "Q1 2025"
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    deviceScore: DataTypes.FLOAT,
+    networkScore: DataTypes.FLOAT,
+    destinationScore: DataTypes.FLOAT,
+    aiOpsScore: DataTypes.FLOAT, // Added based on sample output
+  });
+
+  Assessment.associate = (models) => {
+    if (models.Project) {
+      Assessment.belongsTo(models.Project, { foreignKey: 'projectId' });
+    }
+    if (models.AssessmentResponse) {
+      Assessment.hasMany(models.AssessmentResponse, { foreignKey: 'assessmentId' });
+    }
+  };
+
+  return Assessment;
+};
+
+statement.js
+
+// File: backend/src/models/statement.js
+module.exports = (sequelize, DataTypes) => {
+  const Statement = sequelize.define('Statement', {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    text: {
+      type: DataTypes.STRING(1024), // Increased length for potentially long statements
+      allowNull: false,
+    },
+    dimension: {
+      type: DataTypes.ENUM('Device', 'Network', 'Destination', 'AI Ops'),
+      allowNull: false,
+    },
+    defaultWeight: {
+      type: DataTypes.FLOAT,
+      defaultValue: 1.0,
+    },
+  });
+  // No direct associations needed here, AssessmentResponse links to it.
+  return Statement;
+};
+
+assessmentResponse.js
+
+// File: backend/src/models/assessmentResponse.js
+module.exports = (sequelize, DataTypes) => {
+  const AssessmentResponse = sequelize.define('AssessmentResponse', {
+    score: { // 0-4
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      validate: { min: 0, max: 4 },
+    },
+    comments: DataTypes.TEXT,
+    evidenceLink: DataTypes.STRING(2048), // URL for evidence can be long
+  });
+
+  AssessmentResponse.associate = (models) => {
+    if (models.Assessment) {
+      AssessmentResponse.belongsTo(models.Assessment, { foreignKey: 'assessmentId' });
+    }
+    if (models.Statement) {
+      AssessmentResponse.belongsTo(models.Statement, { foreignKey: 'statementId' });
+    }
+  };
+
+  return AssessmentResponse;
+};
+
+API Routes (backend/src/api/)
+projectRoutes.js
+
+// File: backend/src/api/projectRoutes.js
+const express = require('express');
+const router = express.Router();
+// Correctly import models from the central export (usually models/index.js)
+const db = require('../models');
+const Project = db.Project;
+const Assessment = db.Assessment; // Assuming Assessment is also exported by db
+
+// POST /api/projects - Create a new project
+router.post('/', async (req, res) => {
+  try {
+    const { name, applicationType } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Project name is required.' });
+    }
+    const newProject = await Project.create({ name, applicationType });
+    res.status(201).json(newProject);
+  } catch (error) {
+    console.error('Error creating project:', error);
+    res.status(500).json({ error: 'Failed to create project. ' + error.message });
+  }
+});
+
+// GET /api/projects/:id - Get a specific project and its assessments
+router.get('/:id', async (req, res) => {
+  try {
+    const project = await Project.findByPk(req.params.id, {
+      include: [{
+        model: Assessment, // Use the imported Assessment model
+        as: 'Assessments' // This 'as' alias must match the one defined in Project.associate
+      }]
+    });
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+    res.json(project);
+  } catch (error) {
+    console.error('Error fetching project:', error);
+    res.status(500).json({ error: 'Failed to fetch project. ' + error.message });
+  }
+});
+
+// GET /api/projects - Get all projects
+router.get('/', async (req, res) => {
+  try {
+    const projects = await Project.findAll({
+      order: [['createdAt', 'DESC']]
+    });
+    res.json(projects);
+  } catch (error) {
+    console.error('Error fetching projects:', error);
+    res.status(500).json({ error: 'Failed to fetch projects. ' + error.message });
+  }
+});
+
+
+module.exports = router;
+
+assessmentRoutes.js
+
+// File: backend/src/api/assessmentRoutes.js
+const express = require('express');
+const router = express.Router();
+const db = require('../models'); // Central import for models
+const Assessment = db.Assessment;
+const AssessmentResponse = db.AssessmentResponse;
+const Statement = db.Statement;
+const { calculateMaturityForAssessment, getMaturityLevel } = require('../services/assessmentService');
+
+// POST /api/assessments - Start a new assessment for a project
+router.post('/', async (req, res) => {
+  try {
+    const { projectId, quarter, responses } = req.body;
+
+    if (!projectId || !quarter || !responses || !Array.isArray(responses)) {
+      return res.status(400).json({ error: 'Missing required fields for assessment (projectId, quarter, responses array).' });
+    }
+    if (responses.some(r => typeof r.statementId === 'undefined' || typeof r.score === 'undefined')) {
+      return res.status(400).json({ error: 'Each response must include statementId and score.' });
+    }
+
+    const newAssessment = await Assessment.create({ projectId, quarter });
+
+    const responsePromises = responses.map(r =>
+      AssessmentResponse.create({
+        assessmentId: newAssessment.id,
+        statementId: r.statementId,
+        score: r.score,
+        comments: r.comments || null, // Handle optional comments
+        evidenceLink: r.evidenceLink || null, // Handle optional evidence link
+      })
+    );
+    await Promise.all(responsePromises);
+
+    // After creating assessment and responses, calculate and store overall scores
+    const calculatedResults = await calculateMaturityForAssessment(newAssessment.id);
+    await newAssessment.update({
+        deviceScore: calculatedResults.Device?.averageScore,
+        networkScore: calculatedResults.Network?.averageScore,
+        destinationScore: calculatedResults.Destination?.averageScore,
+        aiOpsScore: calculatedResults['AI Ops']?.averageScore,
+    });
+
+    res.status(201).json(newAssessment);
+  } catch (error) {
+    console.error('Error creating assessment:', error);
+    res.status(500).json({ error: 'Failed to create assessment. ' + error.message });
+  }
+});
+
+// GET /api/statements - Get all standard statements for the questionnaire
+router.get('/statements', async (req, res) => {
+  try {
+    const statements = await Statement.findAll({ order: [['dimension', 'ASC'],['id', 'ASC']] });
+    res.json(statements);
+  } catch (error) {
+    console.error('Error fetching statements:', error);
+    res.status(500).json({ error: 'Failed to fetch statements. ' + error.message });
+  }
+});
+
+// GET /api/assessments/:id/results - Get calculated results for a specific assessment
+router.get('/:id/results', async (req, res) => {
+  try {
+    const assessmentId = req.params.id;
+    const assessment = await Assessment.findByPk(assessmentId);
+    if (!assessment) {
+        return res.status(404).json({ error: 'Assessment not found.' });
+    }
+    // Check if scores are already on the assessment model
+    if (assessment.deviceScore !== null) { // Assuming if one is set, all are
+        res.json({
+            Device: { averageScore: assessment.deviceScore, maturityLevel: getMaturityLevel(assessment.deviceScore) },
+            Network: { averageScore: assessment.networkScore, maturityLevel: getMaturityLevel(assessment.networkScore) },
+            Destination: { averageScore: assessment.destinationScore, maturityLevel: getMaturityLevel(assessment.destinationScore) },
+            'AI Ops': { averageScore: assessment.aiOpsScore, maturityLevel: getMaturityLevel(assessment.aiOpsScore) },
+        });
+    } else {
+        // If not pre-calculated (e.g. older data or different flow), calculate them
+        const results = await calculateMaturityForAssessment(assessmentId);
+        res.json(results);
+    }
+  } catch (error) {
+    console.error('Error fetching/calculating assessment results:', error);
+    res.status(500).json({ error: 'Failed to fetch/calculate results. ' + error.message });
+  }
+});
+
+// GET /api/assessments/project/:projectId - Get all assessments for a project
+router.get('/project/:projectId', async (req, res) => {
+  try {
+    const projectId = req.params.projectId;
+    const assessments = await Assessment.findAll({
+      where: { projectId: projectId },
+      order: [['createdAt', 'DESC']]
+    });
+    if (!assessments) {
+      return res.status(404).json({ error: 'No assessments found for this project.'});
+    }
+    res.json(assessments);
+  } catch (error) {
+    console.error('Error fetching assessments for project:', error);
+    res.status(500).json({ error: 'Failed to fetch assessments. ' + error.message });
+  }
+});
+
+
+module.exports = router;
+
+Services (backend/src/services/)
+assessmentService.js
+
+// File: backend/src/services/assessmentService.js
+const db = require('../models'); // Central import for models
+const Assessment = db.Assessment;
+const AssessmentResponse = db.AssessmentResponse;
+const Statement = db.Statement;
+
+// Function to convert average score to maturity level
+// This mapping should be clearly defined based on ERT framework documentation.
+// Example based on typical 0-4 scale mapping to 4 levels (Ad Hoc, Defined, Managed, Optimized)
+// Ad Hoc: 0.0 - 1.0
+// Defined: 1.1 - 2.0
+// Managed: 2.1 - 3.0
+// Optimized: 3.1 - 4.0
+// The sample output (Device 1.7 -> Defined, Network 1.3 -> Ad Hoc) suggests slightly different thresholds.
+// Let's use a clear, consistent mapping. If 0-4 represents 5 levels (0,1,2,3,4):
+// 0: Ad Hoc
+// 1: Initial/Defined
+// 2: Repeatable/Managed
+// 3: Defined/Optimized
+// 4: Optimizing/Innovating
+// For simplicity with 4 levels as in sample output:
+function getMaturityLevel(averageScore) {
+  if (averageScore === null || typeof averageScore === 'undefined') return 'N/A';
+  if (averageScore < 1.5) return 'Ad Hoc';    // Scores 0.0 to 1.49
+  if (averageScore < 2.5) return 'Defined';   // Scores 1.5 to 2.49
+  if (averageScore < 3.5) return 'Managed';   // Scores 2.5 to 3.49
+  return 'Optimized';                         // Scores 3.5 to 4.0
+}
+
+async function calculateMaturityForAssessment(assessmentId) {
+  const assessment = await Assessment.findByPk(assessmentId, {
+    include: [{
+      model: AssessmentResponse,
+      include: [Statement] // Ensure Statement model is correctly associated and imported
+    }]
+  });
+
+  if (!assessment) {
+    console.error(`Assessment with ID ${assessmentId} not found for calculation.`);
+    throw new Error('Assessment not found');
+  }
+
+  const scoresByDimension = {
+    Device: [],
+    Network: [],
+    Destination: [],
+    'AI Ops': [],
+  };
+
+  assessment.AssessmentResponses.forEach(response => {
+    if (response.Statement && response.Statement.dimension && scoresByDimension.hasOwnProperty(response.Statement.dimension)) {
+      // Ensure score is a number before pushing
+      if (typeof response.score === 'number' && !isNaN(response.score)) {
+        scoresByDimension[response.Statement.dimension].push(response.score);
+      } else {
+        console.warn(`Invalid or missing score for statement ID ${response.Statement.id} in assessment ${assessmentId}. Score: ${response.score}`);
+      }
+    } else if (response.Statement) {
+      console.warn(`Dimension ${response.Statement.dimension} not tracked or Statement missing from response for assessment ${assessmentId}.`);
+    } else {
+      console.warn(`Statement data missing for one of the responses of assessment ${assessmentId}`);
+    }
+  });
+
+  const results = {};
+  for (const dimension in scoresByDimension) {
+    const scores = scoresByDimension[dimension];
+    let averageScore = 0; // Default to 0 if no scores
+    if (scores.length > 0) {
+      averageScore = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+    }
+    results[dimension] = {
+      averageScore: parseFloat(averageScore.toFixed(1)), // Keep one decimal place
+      maturityLevel: getMaturityLevel(averageScore),
+      count: scores.length // Useful for debugging or display
+    };
+  }
+  return results;
+}
+
+module.exports = { calculateMaturityForAssessment, getMaturityLevel };
+
+🌐 Frontend Code (React with Vite)
+Services (frontend/src/services/)
+apiClient.js
+
+// File: frontend/src/services/apiClient.js
+import axios from 'axios';
+
+// Determine the base URL based on the environment
+const baseURL = process.env.NODE_ENV === 'production'
+  ? '/api' // In production, frontend might be served by the same host as backend
+  : 'http://localhost:3001/api'; // Your backend API URL for development (adjust port if necessary)
+
+const apiClient = axios.create({
+  baseURL: baseURL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Optional: Add interceptors for auth tokens or global error handling
+// apiClient.interceptors.request.use(config => {
+//   const token = localStorage.getItem('authToken'); // Example: get token from local storage
+//   if (token) {
+//     config.headers.Authorization = `Bearer ${token}`;
+//   }
+//   return config;
+// });
+
+// apiClient.interceptors.response.use(
+//   response => response,
+//   error => {
+//     // Handle global errors, e.g., redirect on 401
+//     if (error.response && error.response.status === 401) {
+//       // window.location = '/login';
+//     }
+//     return Promise.reject(error);
+//   }
+// );
+
+// Project Endpoints
+export const createProject = (data) => apiClient.post('/projects', data);
+export const getProjectById = (id) => apiClient.get(`/projects/${id}`);
+export const getAllProjects = () => apiClient.get('/projects');
+
+
+// Statement & Assessment Endpoints
+export const getStatements = () => apiClient.get('/assessments/statements');
+export const submitAssessment = (data) => apiClient.post('/assessments', data);
+export const getAssessmentResults = (assessmentId) => apiClient.get(`/assessments/${assessmentId}/results`);
+export const getAssessmentsForProject = (projectId) => apiClient.get(`/assessments/project/${projectId}`);
+
+
+// Add other API functions for remediation, reports etc. as needed
+// export const getRemediationPlan = (assessmentId) => apiClient.get(`/remediations/${assessmentId}`);
+// export const generateReport = (assessmentId) => apiClient.get(`/reports/${assessmentId}/download`);
+
+export default apiClient;
+
+Components (frontend/src/components/)
+Assessment Components
+ScoreInput.jsx
+
+// File: frontend/src/components/Assessment/ScoreInput.jsx
+import React from 'react';
+
+const ScoreInput = ({ statementId, currentScore, onScoreChange, dimension }) => {
+  const scores = [0, 1, 2, 3, 4]; // Ad Hoc (0) -> Optimized (4)
+  // Simple styling for radio buttons
+  const radioStyle = {
+    margin: '0 5px 0 2px',
+    cursor: 'pointer',
+  };
+  const labelStyle = {
+    marginRight: '15px',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+  };
+
+  return (
+    <div style={{ marginTop: '5px', marginBottom: '10px'}}>
+      {/* <label htmlFor={`score-${statementId}-group`} style={{ fontWeight: 'bold', marginRight: '10px' }}>Score (0-4):</label> */}
+      <div id={`score-${statementId}-group`} role="radiogroup" aria-labelledby={`statement-${statementId}-label`}>
+        {scores.map(scoreValue => (
+          <label key={`${dimension}-${statementId}-${scoreValue}`} style={labelStyle}>
+            <input
+              type="radio"
+              name={`score-${dimension}-${statementId}`} // Unique name per statement to ensure only one radio is checked
+              value={scoreValue}
+              checked={currentScore === scoreValue}
+              onChange={(e) => onScoreChange(statementId, parseInt(e.target.value, 10))}
+              required
+              style={radioStyle}
+            /> {scoreValue}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default ScoreInput;
+
+Questionnaire.jsx
+
+// File: frontend/src/components/Assessment/Questionnaire.jsx
+import React, { useState, useEffect } from 'react';
+import { getStatements, submitAssessment } from '../../services/apiClient';
+import ScoreInput from './ScoreInput';
+
+const Questionnaire = ({ projectId, currentQuarter, onAssessmentSubmit, onCancel }) => {
+  const [statements, setStatements] = useState([]);
+  // Store responses as an object: { statementId: { score: null, comments: '', evidenceLink: '' } }
+  const [responses, setResponses] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [submitError, setSubmitError] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const fetchStatements = async () => {
+      setLoading(true);
+      try {
+        const { data } = await getStatements();
+        setStatements(data);
+        // Initialize responses state based on fetched statements
+        const initialResponses = {};
+        data.forEach(stmt => {
+          initialResponses[stmt.id] = { score: null, comments: '', evidenceLink: '' };
+        });
+        setResponses(initialResponses);
+        setSubmitError(null);
+      } catch (err) {
+        console.error("Failed to load statements:", err);
+        setSubmitError('Failed to load questionnaire statements. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStatements();
+  }, []);
+
+  const handleScoreChange = (statementId, score) => {
+    setResponses(prev => ({
+      ...prev,
+      [statementId]: { ...prev[statementId], score: score },
+    }));
+  };
+
+  const handleCommentChange = (statementId, comments) => {
+    setResponses(prev => ({
+      ...prev,
+      [statementId]: { ...prev[statementId], comments },
+    }));
+  };
+
+  const handleEvidenceLinkChange = (statementId, link) => {
+    setResponses(prev => ({
+      ...prev,
+      [statementId]: { ...prev[statementId], evidenceLink: link },
+    }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setSubmitError(null); // Clear previous errors
+
+    const allScored = statements.every(stmt => responses[stmt.id]?.score !== null);
+    if (!allScored) {
+      setSubmitError('Please score all statements before submitting.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    const formattedResponses = statements.map(stmt => ({
+        statementId: stmt.id,
+        score: responses[stmt.id].score,
+        comments: responses[stmt.id].comments,
+        evidenceLink: responses[stmt.id].evidenceLink,
+    }));
+
+    try {
+      const assessmentData = {
+        projectId,
+        quarter: currentQuarter,
+        responses: formattedResponses,
+      };
+      const { data: newAssessment } = await submitAssessment(assessmentData);
+      // alert('Assessment submitted successfully!'); // Consider a more integrated notification
+      if (onAssessmentSubmit) {
+        onAssessmentSubmit(newAssessment.id, newAssessment.quarter); // Pass new assessment ID and quarter up
+      }
+    } catch (err) {
+      console.error("Failed to submit assessment:", err);
+      setSubmitError(err.response?.data?.error || 'Failed to submit assessment. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (loading) return <p>Loading questionnaire...</p>;
+  // if (fetchError && statements.length === 0) return <p style={{ color: 'red' }}>{fetchError}</p>;
+
+  // Group statements by dimension for better UI
+  const statementsByDimension = statements.reduce((acc, stmt) => {
+    acc[stmt.dimension] = acc[stmt.dimension] || [];
+    acc[stmt.dimension].push(stmt);
+    return acc;
+  }, {});
+
+  const dimensionsOrder = ['Device', 'Network', 'Destination', 'AI Ops'];
+
+
+  return (
+    <form onSubmit={handleSubmit} style={{ padding: '20px', border: '1px solid #ccc', borderRadius: '8px', backgroundColor: '#f9f9f9' }}>
+      <h2 style={{ marginTop: 0, borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
+        ERT Assessment: {currentQuarter}
+      </h2>
+
+      {dimensionsOrder.map(dimension => (
+        statementsByDimension[dimension] && (
+          <div key={dimension} style={{ marginBottom: '25px' }}>
+            <h3 style={{ borderBottom: '1px solid #ddd', paddingBottom: '5px', color: '#333' }}>{dimension}</h3>
+            {statementsByDimension[dimension].map(statement => (
+              <div key={statement.id} style={{ marginBottom: '15px', padding: '10px', borderLeft: '3px solid #007bff', backgroundColor: '#fff' }}>
+                <p id={`statement-${statement.id}-label`} style={{ fontWeight: '500', margin: '0 0 5px 0' }}>{statement.text}</p>
+                <ScoreInput
+                  statementId={statement.id}
+                  dimension={dimension} // Pass dimension for unique radio names
+                  currentScore={responses[statement.id]?.score}
+                  onScoreChange={handleScoreChange}
+                />
+                <textarea
+                  placeholder="Comments / Evidence Notes"
+                  value={responses[statement.id]?.comments || ''}
+                  onChange={(e) => handleCommentChange(statement.id, e.target.value)}
+                  style={{ width: 'calc(100% - 22px)', minHeight: '50px', marginTop: '5px', padding: '10px', border: '1px solid #ccc', borderRadius: '4px' }}
+                  rows="2"
+                />
+                <input
+                  type="url"
+                  placeholder="Link to evidence (e.g., https://...)"
+                  value={responses[statement.id]?.evidenceLink || ''}
+                  onChange={(e) => handleEvidenceLinkChange(statement.id, e.target.value)}
+                  style={{ width: 'calc(100% - 22px)', marginTop: '5px', padding: '10px', border: '1px solid #ccc', borderRadius: '4px' }}
+                />
+              </div>
+            ))}
+          </div>
+        )
+      ))}
+
+      {submitError && <p style={{ color: 'red', marginTop: '15px' }}>{submitError}</p>}
+
+      <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+         <button
+            type="button"
+            onClick={onCancel}
+            disabled={isSubmitting}
+            style={{ padding: '10px 20px', fontSize: '16px', cursor: 'pointer', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px' }}
+        >
+            Cancel
+        </button>
+        <button
+            type="submit"
+            disabled={isSubmitting || loading}
+            style={{ padding: '10px 20px', fontSize: '16px', cursor: 'pointer', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px' }}
+        >
+          {isSubmitting ? 'Submitting...' : 'Submit Assessment'}
+        </button>
+      </div>
+    </form>
+  );
+};
+
+export default Questionnaire;
+
+Dashboard Components
+MaturityHeatMap.jsx
+
+// File: frontend/src/components/Dashboard/MaturityHeatMap.jsx
+import React, { useEffect, useState } from 'react';
+import { getAssessmentResults } from '../../services/apiClient';
+
+const MaturityHeatMap = ({ assessmentId, assessmentQuarter }) => {
+  const [maturityData, setMaturityData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!assessmentId) {
+      setMaturityData(null); // Clear data if no assessment is selected
+      setLoading(false);
+      return;
+    }
+
+    const loadData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data } = await getAssessmentResults(assessmentId);
+        setMaturityData(data);
+      } catch (err) {
+        console.error("Failed to load maturity data:", err);
+        setError(err.response?.data?.error || "Failed to load maturity data. Please ensure the assessment is processed.");
+        setMaturityData(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [assessmentId]); // Reload when assessmentId changes
+
+  const getMaturityColor = (level) => {
+    switch (level) {
+      case 'Ad Hoc': return '#dc3545'; // Red
+      case 'Defined': return '#ffc107'; // Yellow/Orange
+      case 'Managed': return '#17a2b8'; // Teal/Blue
+      case 'Optimized': return '#28a745'; // Green
+      default: return '#6c757d'; // Grey for N/A
+    }
+  };
+
+  if (loading) return <p>Loading maturity heat map...</p>;
+  if (error) return <p style={{ color: 'red' }}>{error}</p>;
+  if (!maturityData) return <p>No data to display for heat map. Select an assessment or ensure it's processed.</p>;
+
+  // Order of dimensions for display
+  const dimensionsOrder = ['Device', 'Network', 'Destination', 'AI Ops'];
+
+  return (
+    <div style={{ padding: '20px', border: '1px solid #ccc', borderRadius: '8px', backgroundColor: '#f9f9f9' }}>
+      <h3 style={{ marginTop: 0, borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
+        Maturity Heat Map {assessmentQuarter ? `(${assessmentQuarter})` : ''}
+      </h3>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+        <thead>
+          <tr style={{ backgroundColor: '#e9ecef' }}>
+            <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>Dimension</th>
+            <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'center' }}>Average Score</th>
+            <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'center' }}>Maturity Level</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dimensionsOrder.map(dimension => {
+            const data = maturityData[dimension];
+            if (!data) return null; // Skip if dimension data is missing
+
+            return (
+              <tr key={dimension}>
+                <td style={{ padding: '12px', border: '1px solid #dee2e6' }}>{dimension}</td>
+                <td style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'center' }}>
+                  {typeof data.averageScore === 'number' ? data.averageScore.toFixed(1) : 'N/A'}
+                </td>
+                <td style={{
+                  padding: '12px',
+                  border: '1px solid #dee2e6',
+                  textAlign: 'center',
+                  backgroundColor: getMaturityColor(data.maturityLevel),
+                  color: (data.maturityLevel === 'Defined' || data.maturityLevel === 'Ad Hoc') ? '#212529' : 'white', // Text color for contrast
+                  fontWeight: 'bold',
+                }}>
+                  {data.maturityLevel || 'N/A'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {/* Placeholder for Gap Identification and Performance Simulations */}
+      <div style={{marginTop: '20px'}}>
+        <h4>Next Steps:</h4>
+        <ul>
+            <li>Review Gap Identification (lowest scoring items).</li>
+            <li>Explore Performance Simulations.</li>
+            <li>Proceed to Remediation Planner.</li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+export default MaturityHeatMap;
+
+Main Application Files (Frontend - Example Placeholders)
+frontend/src/App.jsx (Example structure, you'll need React Router etc.)
+
+// File: frontend/src/App.jsx
+import React, { useState, useEffect } from 'react';
+// import { BrowserRouter as Router, Route, Switch, Link } from 'react-router-dom'; // If using React Router
+import Questionnaire from './components/Assessment/Questionnaire';
+import MaturityHeatMap from './components/Dashboard/MaturityHeatMap';
+import { getAllProjects, createProject, getAssessmentsForProject } from './services/apiClient';
+// Basic styling, replace with your CSS solution (e.g., Tailwind, CSS Modules, Styled Components)
+import './App.css';
+
+
+function App() {
+  const [currentView, setCurrentView] = useState('projectSelection'); // projectSelection, newAssessment, viewResults
+  const [projects, setProjects] = useState([]);
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const [selectedProjectName, setSelectedProjectName] = useState('');
+  const [assessments, setAssessments] = useState([]);
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState(null);
+  const [selectedAssessmentQuarter, setSelectedAssessmentQuarter] = useState('');
+
+  const [showNewProjectForm, setShowNewProjectForm] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectType, setNewProjectType] = useState('');
+
+
+  const fetchProjects = async () => {
+    try {
+      const { data } = await getAllProjects();
+      setProjects(data);
+    } catch (error) {
+      console.error("Failed to fetch projects", error);
+    }
+  };
+
+  const fetchAssessments = async (projectId) => {
+    if (!projectId) return;
+    try {
+        const { data } = await getAssessmentsForProject(projectId);
+        setAssessments(data);
+    } catch (error) {
+        console.error("Failed to fetch assessments for project", projectId, error);
+        setAssessments([]); // Clear assessments on error
+    }
+  };
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
+  useEffect(() => {
+    if (selectedProjectId) {
+        fetchAssessments(selectedProjectId);
+    } else {
+        setAssessments([]); // Clear assessments if no project selected
+    }
+  }, [selectedProjectId]);
+
+
+  const handleProjectSelect = (projectId, projectName) => {
+    setSelectedProjectId(projectId);
+    setSelectedProjectName(projectName);
+    setSelectedAssessmentId(null); // Reset assessment selection
+    setSelectedAssessmentQuarter('');
+    setCurrentView('projectDashboard');
+  };
+
+  const handleNewProjectSubmit = async (e) => {
+    e.preventDefault();
+    if (!newProjectName.trim()) {
+        alert("Project name is required.");
+        return;
+    }
+    try {
+        await createProject({ name: newProjectName, applicationType: newProjectType });
+        setNewProjectName('');
+        setNewProjectType('');
+        setShowNewProjectForm(false);
+        fetchProjects(); // Refresh project list
+    } catch (error) {
+        console.error("Failed to create project", error);
+        alert("Error creating project: " + (error.response?.data?.error || error.message));
+    }
+  };
+
+
+  const startNewAssessment = () => {
+    if (!selectedProjectId) {
+        alert("Please select a project first.");
+        return;
+    }
+    // Simple quarter generation, can be improved
+    const year = new Date().getFullYear();
+    const q = Math.floor(new Date().getMonth() / 3) + 1;
+    setCurrentView('newAssessment');
+    setSelectedAssessmentQuarter(`Q${q} ${year}`); // Set quarter for the new assessment
+  };
+
+  const handleAssessmentSubmit = (assessmentId, assessmentQuarter) => {
+    fetchAssessments(selectedProjectId); // Refresh assessments list
+    setSelectedAssessmentId(assessmentId);
+    setSelectedAssessmentQuarter(assessmentQuarter);
+    setCurrentView('viewResults');
+  };
+
+  const handleViewAssessmentResults = (assessmentId, quarter) => {
+    setSelectedAssessmentId(assessmentId);
+    setSelectedAssessmentQuarter(quarter);
+    setCurrentView('viewResults');
+  };
+
+
+  // Basic Layout & Navigation (Not using React Router for this simple example)
+  return (
+    <div className="app-container">
+      <header className="app-header">
+        <h1>ERT Optimization Calculator</h1>
+        {currentView !== 'projectSelection' && (
+            <button onClick={() => {
+                setCurrentView('projectSelection');
+                setSelectedProjectId(null);
+                setSelectedProjectName('');
+                setSelectedAssessmentId(null);
+            }} style={{marginLeft: 'auto'}}>Back to Projects</button>
+        )}
+      </header>
+
+      <main className="app-main">
+        {currentView === 'projectSelection' && (
+          <section className="project-selection-view">
+            <h2>Select or Create a Project</h2>
+            <button onClick={() => setShowNewProjectForm(!showNewProjectForm)} className="action-button">
+              {showNewProjectForm ? 'Cancel New Project' : '+ Create New Project'}
+            </button>
+            {showNewProjectForm && (
+              <form onSubmit={handleNewProjectSubmit} className="new-project-form">
+                <h3>New Project Details</h3>
+                <div>
+                  <label htmlFor="newProjectName">Project Name:</label>
+                  <input type="text" id="newProjectName" value={newProjectName} onChange={e => setNewProjectName(e.target.value)} required />
+                </div>
+                <div>
+                  <label htmlFor="newProjectType">Application Type:</label>
+                  <input type="text" id="newProjectType" value={newProjectType} onChange={e => setNewProjectType(e.target.value)} placeholder="e.g., Web App, IoT System"/>
+                </div>
+                <button type="submit" className="action-button">Save Project</button>
+              </form>
+            )}
+            <div className="project-list">
+              <h3>Existing Projects:</h3>
+              {projects.length > 0 ? (
+                <ul>{projects.map(p => <li key={p.id} onClick={() => handleProjectSelect(p.id, p.name)}>{p.name} ({p.applicationType || 'N/A'})</li>)}</ul>
+              ) : <p>No projects found. Create one to get started.</p>}
+            </div>
+          </section>
+        )}
+
+        {currentView === 'projectDashboard' && selectedProjectId && (
+            <section className="project-dashboard-view">
+                <h2>Project: {selectedProjectName}</h2>
+                <button onClick={startNewAssessment} className="action-button">Start New Assessment</button>
+                <h3>Assessments for this Project:</h3>
+                {assessments.length > 0 ? (
+                    <ul>
+                        {assessments.map(asm => (
+                            <li key={asm.id} onClick={() => handleViewAssessmentResults(asm.id, asm.quarter)}>
+                                {asm.quarter} (Submitted: {new Date(asm.createdAt).toLocaleDateString()})
+                            </li>
+                        ))}
+                    </ul>
+                ) : <p>No assessments yet for this project.</p>}
+            </section>
+        )}
+
+
+        {currentView === 'newAssessment' && selectedProjectId && (
+          <Questionnaire
+            projectId={selectedProjectId}
+            currentQuarter={selectedAssessmentQuarter}
+            onAssessmentSubmit={handleAssessmentSubmit}
+            onCancel={() => setCurrentView('projectDashboard')}
+          />
+        )}
+
+        {currentView === 'viewResults' && selectedAssessmentId && (
+          <MaturityHeatMap assessmentId={selectedAssessmentId} assessmentQuarter={selectedAssessmentQuarter} />
+        )}
+      </main>
+
+      <footer className="app-footer">
+        <p>&copy; {new Date().getFullYear()} ERT Calculator</p>
+      </footer>
+    </div>
+  );
+}
+
+export default App;
+
+
+frontend/src/App.css (Basic placeholder styles)
+
+/* File: frontend/src/App.css */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f4f7f6;
+  color: #333;
+  line-height: 1.6;
+}
+
+.app-container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.app-header {
+  background-color: #007bff;
+  color: white;
+  padding: 20px;
+  text-align: center;
+  border-radius: 0 0 8px 8px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+}
+.app-header h1 {
+  margin: 0;
+  font-size: 1.8em;
+}
+
+.app-main {
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  min-height: 60vh;
+}
+
+.app-footer {
+  text-align: center;
+  margin-top: 30px;
+  padding: 15px;
+  font-size: 0.9em;
+  color: #777;
+}
+
+/* Project Selection / Dashboard */
+.project-selection-view h2, .project-dashboard-view h2 {
+  margin-top: 0;
+  color: #0056b3;
+}
+.project-selection-view h3, .project-dashboard-view h3 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+    color: #333;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 5px;
+}
+
+.action-button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1em;
+  margin-bottom: 15px;
+  transition: background-color 0.2s;
+}
+.action-button:hover {
+  background-color: #0056b3;
+}
+
+.new-project-form {
+  background-color: #f9f9f9;
+  padding: 15px;
+  border-radius: 5px;
+  border: 1px solid #e0e0e0;
+  margin-bottom: 20px;
+}
+.new-project-form div {
+  margin-bottom: 10px;
+}
+.new-project-form label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+.new-project-form input[type="text"] {
+  width: calc(100% - 22px);
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.project-list ul, .project-dashboard-view ul {
+  list-style: none;
+  padding: 0;
+}
+.project-list li, .project-dashboard-view li {
+  padding: 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.project-list li:hover, .project-dashboard-view li:hover {
+  background-color: #e9ecef;
+}
+
+/* Questionnaire and HeatMap specific styles can be added or refined */
+/* For example, from Questionnaire.jsx and MaturityHeatMap.jsx styles */
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .app-header h1 {
+    font-size: 1.5em;
+  }
+  .app-main {
+    padding: 15px;
+  }
+}
+
+
+frontend/src/main.jsx (Entry point for Vite React app)
+
+// File: frontend/src/main.jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.jsx'
+// import './index.css' // If you have a global index.css
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
+
+This provides a more comprehensive set of code snippets. Remember to:
