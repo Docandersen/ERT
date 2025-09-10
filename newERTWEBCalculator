@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ERT Optimization Calculator</title>
+  <meta name="description" content="Enterprise Resource Triangle (ERT) Optimization Calculator – quantify Device, Network, Destination impacts; simulate remediations; export results."/>
+  <!-- Tailwind CSS CDN (for rapid styling) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      .print-bg { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+    input[type="number"] { appearance: textfield; }
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+  <header class="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+      <h1 class="text-2xl font-bold">ERT Optimization Calculator</h1>
+      <div class="no-print flex gap-2">
+        <button id="btnPreset1" class="px-3 py-2 rounded-xl bg-slate-900 text-white text-sm">Baseline Example</button>
+        <button id="btnPreset2" class="px-3 py-2 rounded-xl bg-slate-800 text-white text-sm">Low Device Connectivity</button>
+        <button id="btnPreset3" class="px-3 py-2 rounded-xl bg-slate-700 text-white text-sm">High Network Saturation</button>
+        <button id="btnPreset4" class="px-3 py-2 rounded-xl bg-slate-600 text-white text-sm">High Destination Risk</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 grid lg:grid-cols-3 gap-6">
+    <!-- LEFT: Inputs -->
+    <section class="lg:col-span-2">
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Weights -->
+        <div class="bg-white rounded-2xl shadow p-5">
+          <h2 class="text-lg font-semibold mb-1">Weights</h2>
+          <p class="text-sm text-slate-600 mb-4">Adjust business criticality for each domain (we will normalize to sum = 1).</p>
+          <div class="space-y-3">
+            <div>
+              <label class="text-sm font-medium">Device Weight (W<sub>D</sub>)</label>
+              <input id="wD" type="number" min="0" max="1" step="0.01" value="0.30" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">Network Weight (W<sub>N</sub>)</label>
+              <input id="wN" type="number" min="0" max="1" step="0.01" value="0.40" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">Destination Weight (W<sub>DST</sub>)</label>
+              <input id="wDST" type="number" min="0" max="1" step="0.01" value="0.30" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <p class="text-xs text-slate-500">Effective (normalized) weights: <span id="effectiveWeights" class="font-medium"></span></p>
+          </div>
+        </div>
+
+        <!-- Device Inputs -->
+        <div class="bg-white rounded-2xl shadow p-5">
+          <h2 class="text-lg font-semibold mb-1">Device Inputs</h2>
+          <p class="text-sm text-slate-600 mb-4">I<sub>D</sub> = (L<sub>D</sub> + C<sub>D</sub> + A<sub>D</sub>) / 3</p>
+          <div class="space-y-3">
+            <div>
+              <label class="text-sm font-medium">Device Latency / Processing Delays (L<sub>D</sub>)</label>
+              <input id="lD" type="number" min="0" max="1" step="0.01" value="0.40" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">Connectivity Uptime Penalty (C<sub>D</sub>) = 1 - uptime%</label>
+              <input id="cD" type="number" min="0" max="1" step="0.01" value="0.50" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">App Compatibility Penalty (A<sub>D</sub>)</label>
+              <input id="aD" type="number" min="0" max="1" step="0.01" value="0.30" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Network Inputs -->
+        <div class="bg-white rounded-2xl shadow p-5">
+          <h2 class="text-lg font-semibold mb-1">Network Inputs</h2>
+          <p class="text-sm text-slate-600 mb-4">I<sub>N</sub> = (B<sub>T</sub> + L<sub>N</sub> + J<sub>N</sub> + U<sub>N</sub>) / 4</p>
+          <div class="space-y-3">
+            <div>
+              <label class="text-sm font-medium">Bandwidth Saturation Ratio (B<sub>T</sub>)</label>
+              <input id="bT" type="number" min="0" max="1" step="0.01" value="0.60" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">Latency Factor vs SLA (L<sub>N</sub>)</label>
+              <input id="lN" type="number" min="0" max="1" step="0.01" value="0.50" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">Jitter Penalty (J<sub>N</sub>)</label>
+              <input id="jN" type="number" min="0" max="1" step="0.01" value="0.20" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">Uptime Penalty (U<sub>N</sub>) = 1 - availability%</label>
+              <input id="uN" type="number" min="0" max="1" step="0.01" value="0.10" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Destination Inputs -->
+        <div class="bg-white rounded-2xl shadow p-5">
+          <h2 class="text-lg font-semibold mb-1">Destination Inputs</h2>
+          <p class="text-sm text-slate-600 mb-4">I<sub>DST</sub> = (R<sub>DST</sub> + D<sub>DST</sub> + S<sub>DST</sub>) / 3</p>
+          <div class="space-y-3">
+            <div>
+              <label class="text-sm font-medium">Server Response Factor (R<sub>DST</sub>)</label>
+              <input id="rDST" type="number" min="0" max="1" step="0.01" value="0.40" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">Downtime Penalty (D<sub>DST</sub>) = 1 - availability%</label>
+              <input id="dDST" type="number" min="0" max="1" step="0.01" value="0.20" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label class="text-sm font-medium">Security Risk Factor (S<sub>DST</sub>)</label>
+              <input id="sDST" type="number" min="0" max="1" step="0.01" value="0.60" class="w-full mt-1 border rounded-lg px-3 py-2" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="mt-6 flex flex-wrap gap-3 no-print">
+        <button id="btnCalculate" class="px-4 py-2 rounded-xl bg-indigo-600 text-white shadow">Calculate</button>
+        <button id="btnCompare" class="px-4 py-2 rounded-xl bg-indigo-700 text-white shadow">Add to Comparison</button>
+        <button id="btnExportJSON" class="px-4 py-2 rounded-xl bg-slate-900 text-white shadow">Export JSON</button>
+        <button id="btnExportCSV" class="px-4 py-2 rounded-xl bg-slate-800 text-white shadow">Export CSV</button>
+        <button onclick="window.print()" class="px-4 py-2 rounded-xl bg-slate-700 text-white shadow">Print / Save PDF</button>
+        <button id="btnReset" class="px-4 py-2 rounded-xl bg-slate-200 text-slate-900 shadow">Reset</button>
+      </div>
+
+      <!-- Explanation -->
+      <div class="mt-6 bg-white rounded-2xl shadow p-5">
+        <h3 class="text-lg font-semibold">How it Works</h3>
+        <p class="text-sm text-slate-700 mt-2">We compute domain impacts and Total Constraint Impact (TCI):</p>
+        <ul class="list-disc text-sm text-slate-700 ml-6 mt-2 space-y-1">
+          <li><span class="font-medium">Device Impact</span> I<sub>D</sub> = (L<sub>D</sub> + C<sub>D</sub> + A<sub>D</sub>) / 3</li>
+          <li><span class="font-medium">Network Impact</span> I<sub>N</sub> = (B<sub>T</sub> + L<sub>N</sub> + J<sub>N</sub> + U<sub>N</sub>) / 4</li>
+          <li><span class="font-medium">Destination Impact</span> I<sub>DST</sub> = (R<sub>DST</sub> + D<sub>DST</sub> + S<sub>DST</sub>) / 3</li>
+          <li><span class="font-medium">Total Constraint Impact</span> TCI = W<sub>D</sub>·I<sub>D</sub> + W<sub>N</sub>·I<sub>N</sub> + W<sub>DST</sub>·I<sub>DST</sub></li>
+        </ul>
+        <p class="text-xs text-slate-500 mt-2">Inputs are normalized 0–1 (higher = greater constraint). Lower TCI indicates a more optimized system.</p>
+      </div>
+
+      <!-- Maturity & Recommendations -->
+      <div class="mt-6 grid md:grid-cols-2 gap-6">
+        <div class="bg-white rounded-2xl shadow p-5">
+          <h3 class="text-lg font-semibold">Sample Maturity Heat Map (Q1)</h3>
+          <table class="w-full mt-3 text-sm">
+            <thead>
+              <tr class="text-left text-slate-600">
+                <th class="py-2">Dimension</th>
+                <th class="py-2">Average Score</th>
+                <th class="py-2">Maturity</th>
+              </tr>
+            </thead>
+            <tbody id="heatmapBody">
+              <tr class="border-t"><td class="py-2">Device</td><td>1.7</td><td>Defined</td></tr>
+              <tr class="border-t"><td class="py-2">Network</td><td>1.3</td><td>Ad Hoc</td></tr>
+              <tr class="border-t"><td class="py-2">Destination</td><td>2.9</td><td>Managed</td></tr>
+              <tr class="border-t"><td class="py-2">AI Ops</td><td>0.8</td><td>Ad Hoc</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="bg-white rounded-2xl shadow p-5">
+          <h3 class="text-lg font-semibold">Remediation Recommendations</h3>
+          <ul id="recoList" class="mt-3 list-disc ml-5 text-sm space-y-1">
+            <li>Device Testing Farm in CI/CD (Effort: Medium, Impact: High)</li>
+            <li>Network Emulation in Load Tests (Effort: Low, Impact: High)</li>
+            <li>APM Dashboards for Backend Services (Effort: High, Impact: High)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: Results & Charts -->
+    <aside class="lg:col-span-1">
+      <div class="bg-white rounded-2xl shadow p-5">
+        <h2 class="text-lg font-semibold">Results</h2>
+        <div class="grid grid-cols-2 gap-3 mt-3">
+          <div class="p-3 rounded-xl bg-slate-50">
+            <div class="text-xs text-slate-500">I<sub>D</sub> (Device)</div>
+            <div id="idOut" class="text-2xl font-semibold">—</div>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-50">
+            <div class="text-xs text-slate-500">I<sub>N</sub> (Network)</div>
+            <div id="inOut" class="text-2xl font-semibold">—</div>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-50">
+            <div class="text-xs text-slate-500">I<sub>DST</sub> (Destination)</div>
+            <div id="idstOut" class="text-2xl font-semibold">—</div>
+          </div>
+          <div class="p-3 rounded-xl bg-indigo-50">
+            <div class="text-xs text-indigo-600">TCI (Total Constraint Impact)</div>
+            <div id="tciOut" class="text-3xl font-bold text-indigo-700">—</div>
+          </div>
+        </div>
+        <canvas id="impactChart" class="mt-5"></canvas>
+      </div>
+
+      <div class="mt-6 bg-white rounded-2xl shadow p-5">
+        <h3 class="text-lg font-semibold">Comparison Scenarios</h3>
+        <p class="text-sm text-slate-600">Add multiple runs and compare TCI + impacts.</p>
+        <table class="w-full mt-3 text-sm" id="compareTable">
+          <thead>
+            <tr class="text-left text-slate-600">
+              <th class="py-2">#</th>
+              <th class="py-2">I<sub>D</sub></th>
+              <th class="py-2">I<sub>N</sub></th>
+              <th class="py-2">I<sub>DST</sub></th>
+              <th class="py-2">TCI</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="mt-6 bg-white rounded-2xl shadow p-5">
+        <h3 class="text-lg font-semibold">Future Enhancements</h3>
+        <ul class="list-disc ml-5 text-sm space-y-1">
+          <li>Constraint-aware deployment risk score (real-time during release)</li>
+          <li>Integration with Datadog / New Relic</li>
+          <li>Industry benchmarking dashboard for ERT profiles</li>
+          <li>Multi-tenant mode for consulting practices</li>
+        </ul>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="max-w-7xl mx-auto px-4 py-10 text-center text-xs text-slate-500">
+    © <span id="year"></span> ERT Optimization Calculator. All rights reserved.
+  </footer>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const fields = {
+      // weights
+      wD: $('wD'), wN: $('wN'), wDST: $('wDST'),
+      // device
+      lD: $('lD'), cD: $('cD'), aD: $('aD'),
+      // network
+      bT: $('bT'), lN: $('lN'), jN: $('jN'), uN: $('uN'),
+      // destination
+      rDST: $('rDST'), dDST: $('dDST'), sDST: $('sDST')
+    };
+
+    const out = { idOut: $('idOut'), inOut: $('inOut'), idstOut: $('idstOut'), tciOut: $('tciOut'), effective: $('effectiveWeights') };
+    const yearEl = $('year'); yearEl.textContent = new Date().getFullYear();
+
+    let compareRows = [];
+    let chart;
+
+    function clamp01(v) { return Math.max(0, Math.min(1, Number(v) || 0)); }
+
+    function normalizeWeights(wd, wn, wdst) {
+      const sum = wd + wn + wdst;
+      if (sum === 0) return [1/3, 1/3, 1/3];
+      return [wd/sum, wn/sum, wdst/sum];
+    }
+
+    function calcImpacts() {
+      // Read & clamp
+      const wd = clamp01(fields.wD.value); const wn = clamp01(fields.wN.value); const wdst = clamp01(fields.wDST.value);
+      const [W_D, W_N, W_DST] = normalizeWeights(wd, wn, wdst);
+
+      out.effective.textContent = `Device ${W_D.toFixed(2)}, Network ${W_N.toFixed(2)}, Destination ${W_DST.toFixed(2)}`;
+
+      const L_D = clamp01(fields.lD.value); const C_D = clamp01(fields.cD.value); const A_D = clamp01(fields.aD.value);
+      const B_T = clamp01(fields.bT.value); const L_N = clamp01(fields.lN.value); const J_N = clamp01(fields.jN.value); const U_N = clamp01(fields.uN.value);
+      const R_DST = clamp01(fields.rDST.value); const D_DST = clamp01(fields.dDST.value); const S_DST = clamp01(fields.sDST.value);
+
+      const I_D = (L_D + C_D + A_D) / 3;
+      const I_N = (B_T + L_N + J_N + U_N) / 4;
+      const I_DST = (R_DST + D_DST + S_DST) / 3;
+
+      const TCI = W_D * I_D + W_N * I_N + W_DST * I_DST;
+
+      // Update outputs
+      out.idOut.textContent = I_D.toFixed(2);
+      out.inOut.textContent = I_N.toFixed(2);
+      out.idstOut.textContent = I_DST.toFixed(2);
+      out.tciOut.textContent = TCI.toFixed(2);
+
+      updateChart(I_D, I_N, I_DST, [W_D, W_N, W_DST], TCI);
+      updateRecommendations([W_D, W_N, W_DST], [I_D, I_N, I_DST], TCI);
+
+      return { I_D, I_N, I_DST, TCI, weights: { W_D, W_N, W_DST }, inputs: { L_D, C_D, A_D, B_T, L_N, J_N, U_N, R_DST, D_DST, S_DST } };
+    }
+
+    function updateChart(ID, IN, IDST, weights, tci) {
+      const ctx = document.getElementById('impactChart').getContext('2d');
+      const data = {
+        labels: ['Device (I_D)', 'Network (I_N)', 'Destination (I_DST)'],
+        datasets: [
+          { label: 'Impact (0–1)', data: [ID, IN, IDST], borderWidth: 2, tension: 0.3 },
+          { label: 'Weights (0–1)', data: weights, borderWidth: 2, borderDash: [5,4], tension: 0.3 }
+        ]
+      };
+      const options = {
+        responsive: true,
+        plugins: { legend: { position: 'bottom' }, title: { display: true, text: `TCI = ${tci.toFixed(2)} (lower is better)` } },
+        scales: { y: { min: 0, max: 1 } }
+      };
+      if (chart) { chart.data = data; chart.options = options; chart.update(); }
+      else { chart = new Chart(ctx, { type: 'line', data, options }); }
+    }
+
+    function updateRecommendations(weights, impacts, tci) {
+      const [W_D, W_N, W_DST] = weights;
+      const [I_D, I_N, I_DST] = impacts;
+      const weighted = [W_D*I_D, W_N*I_N, W_DST*I_DST];
+      const domains = ['Device', 'Network', 'Destination'];
+      const maxIndex = weighted.indexOf(Math.max(...weighted));
+
+      const base = {
+        Device: [
+          'Device Testing Farm in CI/CD (Effort: Medium, Impact: High)',
+          'Upgrade edge hardware (RAM/SSD/GPU) on constrained endpoints',
+          'Harden mobile connectivity policies; offline-first UX patterns'
+        ],
+        Network: [
+          'Network Emulation in Load Tests (Effort: Low, Impact: High)',
+          'Increase bandwidth or QoS for AI inference/egress flows',
+          'Implement SD-WAN policies; reduce jitter/latency for critical apps'
+        ],
+        Destination: [
+          'APM Dashboards for Backend Services (Effort: High, Impact: High)',
+          'Autoscaling & caching optimizations; DB indexing and query tuning',
+          'Security hardening (WAF, vuln mgmt, zero trust)'
+        ]
+      };
+
+      const list = document.getElementById('recoList');
+      list.innerHTML = '';
+
+      // top priority domain first
+      base[domains[maxIndex]].forEach(t => addLi(list, t, true));
+      // then two cross-domain items
+      domains.forEach((d, i) => { if (i !== maxIndex) base[d].slice(0, 1).forEach(t => addLi(list, t)); });
+
+      // contextual note
+      addLi(list, `Context: Weighted impacts -> Device ${weighted[0].toFixed(2)}, Network ${weighted[1].toFixed(2)}, Destination ${weighted[2].toFixed(2)}; Overall TCI ${tci.toFixed(2)}.`, false, true);
+    }
+
+    function addLi(ul, text, highlight=false, small=false) {
+      const li = document.createElement('li');
+      li.textContent = text;
+      if (highlight) li.className = 'font-medium';
+      if (small) li.className += ' text-xs text-slate-500 list-none mt-2';
+      ul.appendChild(li);
+    }
+
+    function addComparisonRow(res) {
+      compareRows.push(res);
+      const tbody = document.querySelector('#compareTable tbody');
+      const tr = document.createElement('tr');
+      tr.className = 'border-t';
+      tr.innerHTML = `<td class="py-2">${compareRows.length}</td>
+        <td>${res.I_D.toFixed(2)}</td>
+        <td>${res.I_N.toFixed(2)}</td>
+        <td>${res.I_DST.toFixed(2)}</td>
+        <td class="font-medium">${res.TCI.toFixed(2)}</td>`;
+      tbody.appendChild(tr);
+    }
+
+    function exportJSON() {
+      const payload = { timestamp: new Date().toISOString(), runs: compareRows };
+      download('ert_results.json', JSON.stringify(payload, null, 2));
+    }
+
+    function exportCSV() {
+      const header = 'run,I_D,I_N,I_DST,TCI,W_D,W_N,W_DST\n';
+      const rows = compareRows.map((r, i) => [
+        i+1, r.I_D.toFixed(3), r.I_N.toFixed(3), r.I_DST.toFixed(3), r.TCI.toFixed(3), r.weights.W_D.toFixed(3), r.weights.W_N.toFixed(3), r.weights.W_DST.toFixed(3)
+      ].join(','));
+      download('ert_results.csv', header + rows.join('\n'));
+    }
+
+    function download(filename, text) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+      a.download = filename; a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function resetForm() {
+      fields.wD.value = 0.30; fields.wN.value = 0.40; fields.wDST.value = 0.30;
+      fields.lD.value = 0.40; fields.cD.value = 0.50; fields.aD.value = 0.30;
+      fields.bT.value = 0.60; fields.lN.value = 0.50; fields.jN.value = 0.20; fields.uN.value = 0.10;
+      fields.rDST.value = 0.40; fields.dDST.value = 0.20; fields.sDST.value = 0.60;
+      document.querySelector('#compareTable tbody').innerHTML = '';
+      compareRows = [];
+      calcImpacts();
+    }
+
+    // Presets
+    function presetBaseline(){ resetForm(); }
+    function presetLowDeviceConnectivity(){
+      resetForm();
+      fields.cD.value = 0.75; // intermittent connectivity
+      calcImpacts();
+    }
+    function presetHighNetworkSaturation(){
+      resetForm();
+      fields.bT.value = 0.85; fields.lN.value = 0.65; fields.jN.value = 0.40;
+      calcImpacts();
+    }
+    function presetHighDestinationRisk(){
+      resetForm();
+      fields.sDST.value = 0.85; fields.dDST.value = 0.30; fields.rDST.value = 0.55;
+      calcImpacts();
+    }
+
+    // Wire up
+    $('btnCalculate').addEventListener('click', calcImpacts);
+    $('btnCompare').addEventListener('click', () => addComparisonRow(calcImpacts()));
+    $('btnExportJSON').addEventListener('click', exportJSON);
+    $('btnExportCSV').addEventListener('click', exportCSV);
+    $('btnReset').addEventListener('click', resetForm);
+
+    $('btnPreset1').addEventListener('click', presetBaseline);
+    $('btnPreset2').addEventListener('click', presetLowDeviceConnectivity);
+    $('btnPreset3').addEventListener('click', presetHighNetworkSaturation);
+    $('btnPreset4').addEventListener('click', presetHighDestinationRisk);
+
+    // Auto-calc on load
+    document.addEventListener('DOMContentLoaded', calcImpacts);
+  </script>
+</body>
+</html>
